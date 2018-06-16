@@ -9,9 +9,10 @@ import math
 import re
 import os
 from selenium import webdriver
+# 
 headers = {
     "Cookies":'_T_WM=a02a23854d978343869e247a3b321196; WEIBOCN_FROM=1110006030; TMPTOKEN=6iWva0uXbreGiUhPr0lzn44OaVzbTQjBVtrE1PEQbzyWxEzpSDoa396H2emKgW41; SUB=_2A253o7x2DeRhGeNG6FsY-CzIwjyIHXVVb8Q-rDV6PUJbkdANLVH_kW1NS0MyJG0rHuuFKnbi_sB8Zx3lIvKVNIPC; SUHB=05i684jgY6_iUN; SCF=Aq2xMUsTVfZvNGXGJsfXRDQfTk9k5BecnA85BRY8ISmD7ZwR890ACF4hwrlpQNrC_MgVij9lnVptNC9zQN9JJEs.; SSOLoginState=1520946214; M_WEIBOCN_PARAMS=luicode%3D10000011%26lfid%3D1076031732927460%26fid%3D1076031732927460%26uicode%3D10000011',
-    "User-Agent":'Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13B143 Safari/601.1'
+   "User-Agent":'Mozilla/5.0 (iPhone; CPU iPhone OS 9_1 like Mac OS X) AppleWebKit/601.1.46 (KHTML, like Gecko) Version/9.0 Mobile/13B143 Safari/601.1'
 }
 
 #删除不必要的字符
@@ -30,15 +31,16 @@ def get_pattern(user_id):
     #首先获取关注总人数 并确定多少网页
     raw_url = 'https://m.weibo.cn/api/container/getIndex?containerid=231051_-_followers_-_'+user_id+'&page='+str(page);
     #单独爬取第一页 为了获取total
-    r = requests.get(raw_url,headers = headers)
+    
     total = 0
-    print(raw_url)
     try:    
+        r = requests.get(raw_url,headers = headers)
         json_text = r.json()
         total = json_text['data']['cardlistInfo']['total']
         total = math.ceil(int(total)/20) #一页20个关注人
     except:
-        print("没有total")
+        print(raw_url)
+        print("not total")
         return None  #如果该用户没有任何关注 则直接返回
     #爬取关注人列表
     for page in range(1,total+1):
@@ -52,6 +54,7 @@ def get_pattern(user_id):
                 uid = d['user']['id']
                 new_uids.append(str(uid))
         except:
+            print(raw_url)
             print("get pattern error")
             continue
     #写入文件
@@ -74,7 +77,7 @@ def getuids():
     totaluids = ["1537790411"]; #存放总的uid 用于爬取微博
     preuids = ["1537790411",] #用于迭代
 
-    for i in range(1,2):
+    for i in range(1,3):
         newuids = [];
         for id in preuids:
             temp = get_pattern(str(id)) #获取他关注的好友
@@ -107,8 +110,13 @@ def get_weibo(user_id):
     
     #获取containerid
     user_url = 'https://m.weibo.cn/api/container/getIndex?type=uid&value=' + user_id
-    r = requests.get(user_url,headers = headers)
-    json_text = r.json()
+    try:
+        r = requests.get(user_url,headers = headers)
+        json_text = r.json()
+    except:
+        print(user_url)
+        print("获取containerid失败")
+        return None
     #我也不懂为啥这里两个网页居然不一样 看见bug这样写的 不怎么规范
     try:   
         containerid = json_text['data']['tabsInfo']['tabs'][1]['containerid']
@@ -117,36 +125,48 @@ def get_weibo(user_id):
 
     page = 1;
     weibo_url = 'https://m.weibo.cn/api/container/getIndex?type=uid&value={}&containerid={}&page={}'.format(user_id,containerid,page)
-    r = requests.get(weibo_url,headers = headers,timeout = 5)
-    print(weibo_url)
-    json_text = r.json()
+
     total_pages = 0;
     #获取总微博数
     try:
+        r = requests.get(weibo_url,headers = headers)
+        #print(weibo_url)
+        json_text = r.json()
         total_weibos = json_text['data']['cardlistInfo']['total']
         total_pages = math.ceil(total_weibos/10)
     except:
+        print(weibo_url)
+        print("获取weibo total失败")
         return None;
+    total_pages = min(total_pages,80);
     for page in range(1,total_pages+1):
         weibo_url = 'https://m.weibo.cn/api/container/getIndex?type=uid&value={}&containerid={}&page={}'.format(user_id,containerid,page)
-        r= requests.get(weibo_url,headers = headers,timeout = 5)
-        json_text = r.json()
+        
+        
         try:
+            r= requests.get(weibo_url,headers = headers)
+            json_text = r.json()
             datas = json_text['data']['cards']
             for d in datas:
-                uid = d['itemid'].split('_-_')[-1]
-                #除去无用的
-                text = d['mblog']['text']
-                text = re.sub(pattern1,'',text,0)
-                text = re.sub(pattern2,'',text,0)
-                text = filter_emoji(text)
-                if uid != '' and text.strip() != "" :
-                    #uids.append(uid)
-                    raw_weibo.append(text)
+                try:
+                    uid = d['itemid'].split('_-_')[-1]
+                    #除去无用的
+                    text = d['mblog']['text']
+                    text = re.sub(pattern1,'',text,0)
+                    text = re.sub(pattern2,'',text,0)
+                    text = filter_emoji(text)
+                    if uid != '' and text.strip() != "" and text.strip() != " ":
+                        #uids.append(uid)
+                        raw_weibo.append(text)
+                except:
+                    continue
         except:
+            print(weibo_url)
+            print("获取weibo失败")
             continue
+        finally:
+            r.close()
     #写入文件
-    text_path = path + user_id + '.txt'
     f1 = open(text_path,'w',encoding = 'utf8')
     f1.close()
     f1 = open(text_path,'a',encoding = 'utf8')
@@ -158,9 +178,17 @@ def get_weibo(user_id):
 
 if __name__ =="__main__":
     #获取他关注人的信息
-    totaluids = getuids()
+    #totaluids = getuids()
     #get_weibo("1537790411")
-    for id in totaluids:
-        get_weibo(id)
+    with open(r"D:\uids\user2id.txt",'r') as f:
+        t = f.read()
+    tt = t.split()
+    t = tt[0:-1:2]
+    for id in t:
+        text_path = path + str(id) + '.txt';
+        if not os.path.exists(text_path):
+
+            print(id)
+            get_weibo(id)
         
     
